@@ -1243,6 +1243,13 @@ var mcpServer = class extends ExtensionCommon.ExtensionAPI {
             bcc: { type: "string", description: "BCC recipients (comma-separated)" },
             isHtml: { type: "boolean", description: "Set to true if body contains HTML markup (default: false)" },
             from: { type: "string", description: "Sender identity (email address or identity ID from listAccounts)" },
+            headers: {
+              description: "Extra RFC 5322 headers to set on the draft, as {name: value} or a JSON string of that object (some MCP clients flatten nested objects). Main use: scheduling with the Send Later add-on, which scans Drafts folders for X-Send-Later-At (RFC 5322 date, e.g. \"Wed, 26 Aug 2026 07:15:00 +0200\") plus X-Send-Later-Uuid (the add-on instance UUID, braces included). Both are required or the add-on skips the message.",
+              oneOf: [
+                { type: "object", additionalProperties: { type: "string" } },
+                { type: "string", description: "JSON object as a string" },
+              ],
+            },
             attachments: {
               type: "array",
               maxItems: MAX_ATTACHMENTS_PER_MESSAGE,
@@ -6678,7 +6685,7 @@ var mcpServer = class extends ExtensionCommon.ExtensionAPI {
              * sending or opening a compose window. The destination folder is
              * resolved by Thunderbird from the identity's draft-folder pref.
              */
-            function saveDraft(to, subject, body, cc, bcc, isHtml, from, attachments) {
+            function saveDraft(to, subject, body, cc, bcc, isHtml, from, attachments, headers) {
               try {
                 const msgComposeParams = Cc["@mozilla.org/messengercompose/composeparams;1"]
                   .createInstance(Ci.nsIMsgComposeParams);
@@ -6690,6 +6697,27 @@ var mcpServer = class extends ExtensionCommon.ExtensionAPI {
                 composeFields.cc = cc || "";
                 composeFields.bcc = bcc || "";
                 composeFields.subject = subject || "";
+
+                // Dowolne naglowki RFC 5322 (np. X-Send-Later-At / X-Send-Later-Uuid).
+                // setHeader jest juz uzywane na sciezce replyToMessage dla In-Reply-To.
+                if (typeof headers === "string" && headers.trim()) {
+                  try {
+                    headers = JSON.parse(headers);
+                  } catch (e) {
+                    return { error: `headers is a string but not valid JSON: ${e}` };
+                  }
+                }
+                if (headers && typeof headers === "object") {
+                  for (const [hName, hValue] of Object.entries(headers)) {
+                    if (typeof hName !== "string" || !/^[A-Za-z0-9-]+$/.test(hName)) {
+                      return { error: `Invalid header name: ${hName}` };
+                    }
+                    if (typeof hValue !== "string" || /[\r\n]/.test(hValue)) {
+                      return { error: `Invalid header value for ${hName} (no CR/LF allowed)` };
+                    }
+                    composeFields.setHeader(hName, hValue);
+                  }
+                }
 
                 msgComposeParams.type = Ci.nsIMsgCompType.New;
                 msgComposeParams.composeFields = composeFields;
@@ -8425,7 +8453,7 @@ var mcpServer = class extends ExtensionCommon.ExtensionAPI {
                 case "sendMail":
                   return await composeMail(args.to, args.subject, args.body, args.cc, args.bcc, args.isHtml, args.from, args.attachments, args.skipReview);
                 case "saveDraft":
-                  return await saveDraft(args.to, args.subject, args.body, args.cc, args.bcc, args.isHtml, args.from, args.attachments);
+                  return await saveDraft(args.to, args.subject, args.body, args.cc, args.bcc, args.isHtml, args.from, args.attachments, args.headers);
                 case "replyToMessage":
                   return await replyToMessage(args.messageId, args.folderPath, args.body, args.replyAll, args.isHtml, args.to, args.cc, args.bcc, args.from, args.attachments, args.skipReview);
                 case "forwardMessage":
