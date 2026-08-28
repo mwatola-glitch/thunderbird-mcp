@@ -41,10 +41,11 @@ function isPortInUse(port) {
 /**
  * Helper: send a JSON-RPC message to the bridge and get the response.
  */
-function sendToBridge(message, { timeout = 10000 } = {}) {
+function sendToBridge(message, { timeout = 10000, env } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [BRIDGE_PATH], {
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, ...env },
     });
 
     let stdout = '';
@@ -194,6 +195,7 @@ describe('Auth: token verification', () => {
   let server;
   const TEST_PORT = 18766;
   const CORRECT_TOKEN = 'b'.repeat(64);
+  const TEST_ENV = { THUNDERBIRD_MCP_CONNECTION_FILE: CONN_FILE };
 
   before(async () => {
     backupConnectionFile();
@@ -242,7 +244,7 @@ describe('Auth: token verification', () => {
       jsonrpc: '2.0',
       id: 10,
       method: 'tools/list'
-    });
+    }, { env: TEST_ENV });
 
     assert.equal(response.id, 10);
     assert.ok(response.result);
@@ -256,7 +258,7 @@ describe('Auth: token verification', () => {
       jsonrpc: '2.0',
       id: 11,
       method: 'tools/list'
-    });
+    }, { env: TEST_ENV });
 
     // The bridge clears its cache and rejects on 403 responses
     assert.equal(response.id, 11);
